@@ -2,6 +2,7 @@ package orderbook
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"time"
 )
@@ -14,6 +15,7 @@ type Match struct {
 }
 
 type Order struct {
+	Id        int64
 	Size      float64
 	Bid       bool
 	Limit     *Limit // Limit that this order belongs to
@@ -88,6 +90,7 @@ func NewLimit(price float64) *Limit {
 
 func NewOrder(bid bool, size float64) *Order {
 	return &Order{
+		Id:        int64(rand.Intn(10000000)),
 		Size:      size,
 		Bid:       bid,
 		Timestamp: time.Now().UnixNano(),
@@ -181,6 +184,7 @@ type Orderbook struct {
 
 	AskLimits map[float64]*Limit
 	BidLimits map[float64]*Limit
+	Orders    map[int64]*Order
 }
 
 func NewOrderbook() *Orderbook {
@@ -189,6 +193,7 @@ func NewOrderbook() *Orderbook {
 		bids:      []*Limit{},
 		AskLimits: make(map[float64]*Limit),
 		BidLimits: make(map[float64]*Limit),
+		Orders:    make(map[int64]*Order),
 	}
 }
 
@@ -246,6 +251,7 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 		}
 	}
 
+	ob.Orders[o.Id] = o
 	limit.AddOrder(o)
 }
 
@@ -275,6 +281,7 @@ func (ob *Orderbook) clearLimit(bid bool, l *Limit) {
 func (ob *Orderbook) CancelOrder(o *Order) {
 	limit := o.Limit
 	limit.RemoveOrder(o)
+	delete(ob.Orders, o.Id)
 }
 
 func (ob *Orderbook) BidTotalVolume() float64 {

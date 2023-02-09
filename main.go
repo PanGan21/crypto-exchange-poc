@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/PanGan21/crypto-exchange-poc/orderbook"
 	"github.com/labstack/echo/v4"
@@ -14,6 +15,7 @@ func main() {
 
 	e.GET("/book/:market", ex.handleGetBook)
 	e.POST("/order", ex.handlePlaceOrder)
+	e.DELETE("/order/:id", ex.handleCancelOrder)
 
 	e.Start(":3000")
 }
@@ -21,7 +23,7 @@ func main() {
 type OrderType string
 
 const (
-	MarketOrder OrderType = "MARKER"
+	MarketOrder OrderType = "MARKET"
 	LimitOrder  OrderType = "LIMIT"
 )
 
@@ -53,6 +55,7 @@ type PlaceOrderRequest struct {
 }
 
 type Order struct {
+	Id        int64
 	Price     float64
 	Size      float64
 	Bid       bool
@@ -60,8 +63,10 @@ type Order struct {
 }
 
 type OrderbookData struct {
-	Asks []*Order
-	Bids []*Order
+	TotalBidVolume float64
+	TotalAskVolume float64
+	Asks           []*Order
+	Bids           []*Order
 }
 
 func (ex *Exchange) handleGetBook(c echo.Context) error {
@@ -72,12 +77,15 @@ func (ex *Exchange) handleGetBook(c echo.Context) error {
 	}
 
 	orderbookData := &OrderbookData{
-		Asks: []*Order{},
-		Bids: []*Order{},
+		TotalBidVolume: ob.BidTotalVolume(),
+		TotalAskVolume: ob.AskTotalVolume(),
+		Asks:           []*Order{},
+		Bids:           []*Order{},
 	}
 	for _, limit := range ob.Asks() {
 		for _, order := range limit.Orders {
 			o := Order{
+				Id:        order.Id,
 				Price:     order.Limit.Price,
 				Size:      order.Size,
 				Bid:       order.Bid,
@@ -90,6 +98,7 @@ func (ex *Exchange) handleGetBook(c echo.Context) error {
 	for _, limit := range ob.Bids() {
 		for _, order := range limit.Orders {
 			o := Order{
+				Id:        order.Id,
 				Price:     order.Limit.Price,
 				Size:      order.Size,
 				Bid:       order.Bid,
@@ -112,7 +121,31 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	market := Market(placeOrderData.Market)
 	ob := ex.orderbooks[market]
 	order := orderbook.NewOrder(placeOrderData.Bid, placeOrderData.Size)
-	ob.PlaceLimitOrder(placeOrderData.Price, order)
 
-	return c.JSON(200, map[string]any{"msg": "order placed"})
+	if placeOrderData.Type == LimitOrder {
+		ob.PlaceLimitOrder(placeOrderData.Price, order)
+		return c.JSON(200, map[string]any{"msg": "limit order placed"})
+	}
+
+	if placeOrderData.Type == MarketOrder {
+		matches := ob.PlaceMarketOrder(order)
+
+		return c.JSON(200, map[string]any{"matches": len(matches)})
+	}
+
+	return nil
+}
+
+func (ex *Exchange) handleCancelOrder(c echo.Context) error {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return err
+	}
+
+	ob := ex.orderbooks[MarketETH]
+	order := ob.Orders[int64(id)]
+	ob.CancelOrder(order)
+
+	return c.JSON(200, map[string]any{"msg": "order deleted"})
 }

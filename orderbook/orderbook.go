@@ -187,8 +187,8 @@ func NewOrderbook() *Orderbook {
 	return &Orderbook{
 		asks:      []*Limit{},
 		bids:      []*Limit{},
-		AskLimits: map[float64]*Limit{},
-		BidLimits: map[float64]*Limit{},
+		AskLimits: make(map[float64]*Limit),
+		BidLimits: make(map[float64]*Limit),
 	}
 }
 
@@ -224,7 +224,8 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 	return matches
 }
 
-func (ob *Orderbook) PlaceLimitsOrder(price float64, o *Order) {
+// LimitOrder is the way to provide liquidity in the exchange
+func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 	var limit *Limit
 
 	if o.Bid {

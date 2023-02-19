@@ -16,7 +16,7 @@ type Match struct {
 
 type Order struct {
 	Id        int64
-	Size      float64
+	Size      float64 // Amount of crypto to buy
 	Bid       bool
 	Limit     *Limit // Limit that this order belongs to
 	Timestamp int64

@@ -14,9 +14,9 @@ func assert(t *testing.T, a, b any) {
 
 func TestLimit(t *testing.T) {
 	l := NewLimit(10_000)
-	buyOrderA := NewOrder(true, 5)
-	buyOrderB := NewOrder(true, 8)
-	buyOrderC := NewOrder(true, 10)
+	buyOrderA := NewOrder(true, 5, 0)
+	buyOrderB := NewOrder(true, 8, 0)
+	buyOrderC := NewOrder(true, 10, 0)
 
 	l.AddOrder(buyOrderA)
 	l.AddOrder(buyOrderB)
@@ -29,8 +29,8 @@ func TestLimit(t *testing.T) {
 func TestPlaceLimitOrder(t *testing.T) {
 	ob := NewOrderbook()
 
-	sellOrderA := NewOrder(false, 10)
-	sellOrderB := NewOrder(false, 5)
+	sellOrderA := NewOrder(false, 10, 0)
+	sellOrderB := NewOrder(false, 5, 0)
 	ob.PlaceLimitOrder(10_000, sellOrderA)
 	ob.PlaceLimitOrder(9_000, sellOrderB)
 
@@ -44,10 +44,10 @@ func TestPlaceMarketOrder(t *testing.T) {
 	ob := NewOrderbook()
 
 	// Provide liquidity
-	sellOrder := NewOrder(false, 20)
+	sellOrder := NewOrder(false, 20, 0)
 	ob.PlaceLimitOrder(10_000, sellOrder)
 
-	buyOrder := NewOrder(true, 10)
+	buyOrder := NewOrder(true, 10, 0)
 	matches := ob.PlaceMarketOrder(buyOrder)
 
 	assert(t, len(matches), 1)
@@ -63,10 +63,10 @@ func TestPlaceMarketOrder(t *testing.T) {
 func TestPlaceMarketOrderMultiFill(t *testing.T) {
 	ob := NewOrderbook()
 
-	buydOrderA := NewOrder(true, 5)
-	buydOrderB := NewOrder(true, 8)
-	buydOrderC := NewOrder(true, 10)
-	buydOrderD := NewOrder(true, 1)
+	buydOrderA := NewOrder(true, 5, 0)
+	buydOrderB := NewOrder(true, 8, 0)
+	buydOrderC := NewOrder(true, 10, 0)
+	buydOrderD := NewOrder(true, 1, 0)
 
 	ob.PlaceLimitOrder(5_000, buydOrderC)
 	ob.PlaceLimitOrder(5_000, buydOrderD)
@@ -75,7 +75,7 @@ func TestPlaceMarketOrderMultiFill(t *testing.T) {
 
 	assert(t, ob.BidTotalVolume(), float64(10+8+5+1))
 
-	sellOrder := NewOrder(false, 20)
+	sellOrder := NewOrder(false, 20, 0)
 	matches := ob.PlaceMarketOrder(sellOrder)
 
 	assert(t, ob.BidTotalVolume(), 4.0) // (10 + 8 + 5 + 1) - 20 = 4
@@ -88,7 +88,7 @@ func TestPlaceMarketOrderMultiFill(t *testing.T) {
 func TestCancelOrder(t *testing.T) {
 	ob := NewOrderbook()
 
-	buyOrder := NewOrder(true, 4)
+	buyOrder := NewOrder(true, 4, 0)
 
 	ob.PlaceLimitOrder(100000.0, buyOrder)
 	assert(t, ob.BidTotalVolume(), 4.0)

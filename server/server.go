@@ -91,7 +91,11 @@ func Start() {
 	ex.Users[user6.Id] = user6
 
 	e.GET("/book/:market", ex.handleGetBook)
+	e.GET("/book/:market/bid", ex.handleGetBestBid)
+	e.GET("/book/:market/ask", ex.handleGetBestAsk)
+
 	e.POST("/order", ex.handlePlaceOrder)
+
 	e.DELETE("/order/:id", ex.handleCancelOrder)
 
 	buyerAddress := common.HexToAddress("0x28a8746e75304c0780E011BEd21C72cD78cd535E")
@@ -290,6 +294,46 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	}
 
 	return c.JSON(200, resp)
+}
+
+type PriceResponse struct {
+	Price float64
+}
+
+func (ex *Exchange) handleGetBestBid(c echo.Context) error {
+	market := Market(c.Param("market"))
+	ob := ex.orderbooks[market]
+
+	if len(ob.Bids()) == 0 {
+		return fmt.Errorf("the bids are empty")
+	}
+
+	bestBidPrice := ob.Bids()[0].Price
+
+	pr := PriceResponse{
+		Price: bestBidPrice,
+	}
+
+	return c.JSON(http.StatusOK, pr)
+
+}
+
+func (ex *Exchange) handleGetBestAsk(c echo.Context) error {
+	market := Market(c.Param("market"))
+	ob := ex.orderbooks[market]
+
+	if len(ob.Asks()) == 0 {
+		return fmt.Errorf("the asks are empty")
+	}
+
+	bestAskPrice := ob.Asks()[0].Price
+
+	pr := PriceResponse{
+		Price: bestAskPrice,
+	}
+
+	return c.JSON(http.StatusOK, pr)
+
 }
 
 func (ex *Exchange) handleCancelOrder(c echo.Context) error {

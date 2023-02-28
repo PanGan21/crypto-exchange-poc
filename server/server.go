@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/PanGan21/crypto-exchange-poc/orderbook"
 	"github.com/ethereum/go-ethereum/common"
@@ -58,9 +59,14 @@ type (
 	}
 
 	MatchedOrder struct {
-		Price float64
-		Size  float64
-		Id    int64
+		UserId int64
+		Price  float64
+		Size   float64
+		Id     int64
+	}
+
+	APIError struct {
+		Error string
 	}
 )
 
@@ -90,6 +96,8 @@ func Start() {
 	user6 := NewUser(pk6, 6)
 	ex.Users[user6.Id] = user6
 
+	e.GET("/trades/:market", ex.handleGetTrades)
+	e.GET("/order/:userId", ex.handleGetOrders)
 	e.GET("/book/:market", ex.handleGetBook)
 	e.GET("/book/:market/bid", ex.handleGetBestBid)
 	e.GET("/book/:market/ask", ex.handleGetBestAsk)
@@ -146,8 +154,9 @@ func httpErrorHandler(err error, c echo.Context) {
 
 type Exchange struct {
 	Client     *ethclient.Client
+	mu         sync.RWMutex
 	Users      map[int64]*User
-	orders     map[int64]int64
+	Orders     map[int64][]*orderbook.Order // user to his orders
 	PrivateKey *ecdsa.PrivateKey
 	orderbooks map[Market]*orderbook.Orderbook
 }
@@ -164,10 +173,65 @@ func NewExchange(privateKey string, client *ethclient.Client) (*Exchange, error)
 	return &Exchange{
 		Client:     client,
 		Users:      make(map[int64]*User),
-		orders:     make(map[int64]int64),
+		Orders:     make(map[int64][]*orderbook.Order),
 		PrivateKey: pk,
 		orderbooks: orderbooks,
 	}, nil
+}
+
+func (ex *Exchange) handleGetTrades(c echo.Context) error {
+	market := Market(c.Param("market"))
+
+	ob, ok := ex.orderbooks[market]
+	if !ok {
+		return c.JSON(http.StatusBadRequest, APIError{Error: "orderbook not found"})
+	}
+
+	return c.JSON(http.StatusOK, ob.Trades)
+}
+
+type GetOrdersResponse struct {
+	Asks []Order
+	Bids []Order
+}
+
+func (ex *Exchange) handleGetOrders(c echo.Context) error {
+	userIdStr := c.Param("userId")
+	userId, err := strconv.Atoi(userIdStr)
+	if err != nil {
+		return err
+	}
+
+	ex.mu.RLock()
+	orderbookOrders := ex.Orders[int64(userId)]
+	ordersResponse := &GetOrdersResponse{
+		Asks: []Order{},
+		Bids: []Order{},
+	}
+	for i := 0; i < len(orderbookOrders); i++ {
+		if orderbookOrders[i].Limit == nil {
+			fmt.Printf("the limit of the order is nil %+v\n", orderbookOrders[i])
+			continue
+		}
+		order := Order{
+			Id:        orderbookOrders[i].Id,
+			UserId:    orderbookOrders[i].UserId,
+			Price:     orderbookOrders[i].Limit.Price,
+			Size:      orderbookOrders[i].Size,
+			Timestamp: orderbookOrders[i].Timestamp,
+			Bid:       orderbookOrders[i].Bid,
+		}
+
+		if order.Bid {
+			ordersResponse.Bids = append(ordersResponse.Bids, order)
+		} else {
+			ordersResponse.Asks = append(ordersResponse.Asks, order)
+		}
+
+	}
+	ex.mu.RUnlock()
+
+	return c.JSON(http.StatusOK, ordersResponse)
 }
 
 func (ex *Exchange) handleGetBook(c echo.Context) error {
@@ -230,14 +294,18 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 	sumPrice := 0.0
 	for i := 0; i < len(matchedOrders); i++ {
 		id := matches[i].Bid.Id
+		limitUserId := matches[i].Bid.UserId
+
 		if isBid {
+			limitUserId = matches[i].Ask.UserId
 			id = matches[i].Ask.Id
 		}
 
 		matchedOrders[i] = &MatchedOrder{
-			Id:    id,
-			Size:  matches[i].SizeFilled,
-			Price: matches[i].Price,
+			Id:     id,
+			UserId: limitUserId,
+			Size:   matches[i].SizeFilled,
+			Price:  matches[i].Price,
 		}
 
 		totalSizeFilled += matches[i].SizeFilled
@@ -248,12 +316,31 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 
 	log.Printf("filled market order => %d | size [%.2f] | avgPrice [%.2f]", order.Id, totalSizeFilled, avgPrice)
 
+	newOrderMap := make(map[int64][]*orderbook.Order)
+	ex.mu.Lock()
+	for userId, orderbookOrders := range ex.Orders {
+		for i := 0; i < len(orderbookOrders); i++ {
+			// if the order is not filled place it in the map copy
+			// this means that size of the order is 0
+			if !orderbookOrders[i].IsFilled() {
+				newOrderMap[userId] = append(newOrderMap[userId], orderbookOrders[i])
+			}
+		}
+	}
+	ex.Orders = newOrderMap
+	ex.mu.Unlock()
+
 	return matches, matchedOrders
 }
 
 func (ex *Exchange) handlePlaceLimitOrder(market Market, price float64, order *orderbook.Order) error {
 	ob := ex.orderbooks[market]
 	ob.PlaceLimitOrder(price, order)
+
+	// keep track of the user orders
+	ex.mu.Lock()
+	ex.Orders[order.UserId] = append(ex.Orders[order.UserId], order)
+	ex.mu.Unlock()
 
 	log.Printf("new LIMIT order => type [%t] | price [%.2f] | size [%.2f]", order.Bid, order.Limit.Price, order.Size)
 	return nil
@@ -282,11 +369,34 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 
 	// market orders
 	if placeOrderData.Type == MarketOrder {
-		matches, _ := ex.handlePlaceMarketOrder(market, order)
-
+		matches, matchedOrders := ex.handlePlaceMarketOrder(market, order)
 		if err := ex.handleMatches(matches); err != nil {
 			return err
 		}
+
+		// Delete the orders of the user when filled
+		for _, matchedOrder := range matchedOrders {
+			fmt.Printf("Deleting => %+v\n", matchedOrder)
+			userOrders := ex.Orders[matchedOrder.UserId]
+			// if size is 0 order can be deleted
+			for i := 0; i < len(userOrders); i++ {
+				if userOrders[i].IsFilled() {
+					if matchedOrder.Id == userOrders[i].Id {
+						userOrders[i] = userOrders[len(userOrders)-1]
+						userOrders = userOrders[:len(userOrders)-1]
+					}
+
+				}
+			}
+		}
+
+		for _, userOrders := range ex.Orders {
+			for i := 0; i < len(userOrders); i++ {
+				userOrders[i] = userOrders[len(userOrders)-1]
+				userOrders = userOrders[:len(userOrders)-1]
+			}
+		}
+
 	}
 
 	resp := &PlaceOrderResponse{

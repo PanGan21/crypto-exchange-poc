@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+type Trade struct {
+	Price     float64
+	Bid       bool
+	Size      float64
+	Timestamp int64
+}
+
 type Match struct {
 	Ask        *Order
 	Bid        *Order
@@ -127,6 +134,9 @@ func (l *Limit) Fill(o *Order) []Match {
 	)
 
 	for _, order := range l.Orders {
+		if o.IsFilled() {
+			break
+		}
 		match := l.fillOrder(order, o)
 		matches = append(matches, match)
 
@@ -136,9 +146,6 @@ func (l *Limit) Fill(o *Order) []Match {
 			ordersToDelete = append(ordersToDelete, order)
 		}
 
-		if o.IsFilled() {
-			break
-		}
 	}
 
 	for _, order := range ordersToDelete {
@@ -182,8 +189,9 @@ func (l *Limit) fillOrder(a, b *Order) Match {
 }
 
 type Orderbook struct {
-	asks []*Limit
-	bids []*Limit
+	asks   []*Limit
+	bids   []*Limit
+	Trades []*Trade
 
 	mu        sync.RWMutex
 	AskLimits map[float64]*Limit
@@ -195,6 +203,7 @@ func NewOrderbook() *Orderbook {
 	return &Orderbook{
 		asks:      []*Limit{},
 		bids:      []*Limit{},
+		Trades:    []*Trade{},
 		AskLimits: make(map[float64]*Limit),
 		BidLimits: make(map[float64]*Limit),
 		Orders:    make(map[int64]*Order),
@@ -228,6 +237,16 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 				ob.clearLimit(true, limit)
 			}
 		}
+	}
+
+	for _, match := range matches {
+		trade := &Trade{
+			Price:     match.Price,
+			Size:      match.SizeFilled,
+			Timestamp: time.Now().UnixNano(),
+			Bid:       o.Bid,
+		}
+		ob.Trades = append(ob.Trades, trade)
 	}
 
 	return matches
@@ -291,6 +310,10 @@ func (ob *Orderbook) CancelOrder(o *Order) {
 	limit := o.Limit
 	limit.RemoveOrder(o)
 	delete(ob.Orders, o.Id)
+
+	if len(limit.Orders) == 0 {
+		ob.clearLimit(o.Bid, limit)
+	}
 }
 
 func (ob *Orderbook) BidTotalVolume() float64 {

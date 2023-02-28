@@ -15,21 +15,38 @@ const (
 )
 
 var (
-	tick   = 2 * time.Second
-	myAsks = make(map[float64]int64)
-	myBids = make(map[float64]int64)
+	tick = 2 * time.Second
 )
 
 func marketOrderPlacer(c *client.Client) {
 	ticker := time.NewTicker(5 * time.Second)
 	for {
-		marketSellOrder := &client.PlaceOrderParams{
-			UserId: 6,
+		trades, err := c.GetTrades("ETH")
+		if err != nil {
+			panic(err)
+		}
+
+		if len(trades) > 0 {
+			fmt.Printf("exchange price => %2.f\n", trades[len(trades)-1].Price)
+		}
+
+		orderMarketSellOrder := &client.PlaceOrderParams{
+			UserId: 5,
 			Bid:    false,
 			Size:   1000,
 		}
+		_, err = c.PlaceMarketOrder(orderMarketSellOrder)
+		if err != nil {
+			log.Println(err)
+		}
 
-		_, err := c.PlaceMarketOrder(marketSellOrder)
+		marketSellOrder := &client.PlaceOrderParams{
+			UserId: 6,
+			Bid:    false,
+			Size:   100,
+		}
+
+		_, err = c.PlaceMarketOrder(marketSellOrder)
 		if err != nil {
 			log.Println(err)
 		}
@@ -37,7 +54,7 @@ func marketOrderPlacer(c *client.Client) {
 		marketBuyOrder := &client.PlaceOrderParams{
 			UserId: 6,
 			Bid:    true,
-			Size:   1000,
+			Size:   100,
 		}
 
 		_, err = c.PlaceMarketOrder(marketBuyOrder)
@@ -53,6 +70,11 @@ func makeMarketSimple(c *client.Client) {
 	ticker := time.NewTicker(tick)
 
 	for {
+		orders, err := c.GetOrders(7)
+		if err != nil {
+			log.Println(err)
+		}
+
 		bestAsk, err := c.GetBestAsk()
 		if err != nil {
 			log.Println(err)
@@ -66,7 +88,7 @@ func makeMarketSimple(c *client.Client) {
 		spread := math.Abs(bestBid - bestAsk)
 		fmt.Println("exchange spread", spread)
 
-		if len(myBids) < maxOrders {
+		if len(orders.Bids) < maxOrders {
 			bidLimit := &client.PlaceOrderParams{
 				UserId: 7,
 				Bid:    true,
@@ -74,16 +96,13 @@ func makeMarketSimple(c *client.Client) {
 				Size:   1000,
 			}
 
-			bidOrderResp, err := c.PlaceLimitOrder(bidLimit)
+			_, err := c.PlaceLimitOrder(bidLimit)
 			if err != nil {
 				log.Println(err)
 			}
-
-			myBids[bidLimit.Price] = bidOrderResp.OrderId
 		}
 
-		if len(myAsks) < maxOrders {
-
+		if len(orders.Asks) < maxOrders {
 			askLimit := &client.PlaceOrderParams{
 				UserId: 7,
 				Bid:    false,
@@ -91,12 +110,11 @@ func makeMarketSimple(c *client.Client) {
 				Size:   1000,
 			}
 
-			askOrderResp, err := c.PlaceLimitOrder(askLimit)
+			_, err := c.PlaceLimitOrder(askLimit)
 			if err != nil {
 				log.Println(err)
 			}
 
-			myAsks[askLimit.Price] = askOrderResp.OrderId
 		}
 
 		fmt.Println("best ask price", bestAsk)
@@ -106,19 +124,21 @@ func makeMarketSimple(c *client.Client) {
 	}
 }
 
+const userId = 5
+
 func seedMarket(c *client.Client) error {
 	ask := &client.PlaceOrderParams{
-		UserId: 5,
+		UserId: userId,
 		Bid:    false,
 		Price:  10_000,
-		Size:   1_000_000,
+		Size:   1_000,
 	}
 
 	bid := &client.PlaceOrderParams{
-		UserId: 5,
+		UserId: userId,
 		Bid:    true,
 		Price:  9_000,
-		Size:   1_000_000,
+		Size:   10_000,
 	}
 
 	_, err := c.PlaceLimitOrder(ask)
@@ -150,71 +170,6 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	marketOrderPlacer(pocClient)
-
-	// for {
-	// limitOrderParams := &client.PlaceOrderParams{
-	// 	UserId: 5,
-	// 	Bid:    false,
-	// 	Price:  10_000,
-	// 	Size:   5_000_000,
-	// }
-
-	// _, err := pocClient.PlaceLimitOrder(limitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// otherLimitOrderParams := &client.PlaceOrderParams{
-	// 	UserId: 6,
-	// 	Bid:    false,
-	// 	Price:  9_000,
-	// 	Size:   500_000,
-	// }
-
-	// _, err = pocClient.PlaceLimitOrder(otherLimitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// buyLimitOrderParams := &client.PlaceOrderParams{
-	// 	UserId: 6,
-	// 	Bid:    true,
-	// 	Price:  11_000,
-	// 	Size:   500_000,
-	// }
-
-	// _, err = pocClient.PlaceLimitOrder(buyLimitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// marketOrderParam := &client.PlaceOrderParams{
-	// 	UserId: 7,
-	// 	Bid:    true,
-	// 	Size:   1_000_000,
-	// }
-
-	// _, err = pocClient.PlaceMarketOrder(marketOrderParam)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// bestBidPrice, err := pocClient.GetBestBid()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// fmt.Println("best bid price", bestBidPrice)
-
-	// bestAskPrice, err := pocClient.GetBestAsk()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// fmt.Println("best ask price", bestAskPrice)
-
-	// time.Sleep(1 * time.Second)
-	// }
 
 	select {}
 }

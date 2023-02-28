@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/PanGan21/crypto-exchange-poc/orderbook"
 	"github.com/PanGan21/crypto-exchange-poc/server"
 )
 
@@ -27,6 +28,27 @@ type PlaceOrderParams struct {
 	// Price only needed for placing LIMIT orders
 	Price float64
 	Size  float64
+}
+
+func (c *Client) GetTrades(market string) ([]*orderbook.Trade, error) {
+	endpoint := fmt.Sprintf("%s/trades/%s", url, market)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	trades := []*orderbook.Trade{}
+	if err := json.NewDecoder(resp.Body).Decode(&trades); err != nil {
+		return nil, err
+	}
+
+	return trades, nil
 }
 
 func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderResponse, error) {
@@ -62,6 +84,26 @@ func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderRespons
 	}
 
 	return placeOrderResponse, nil
+}
+
+func (c *Client) GetOrders(userId int64) (*server.GetOrdersResponse, error) {
+	endpoint := fmt.Sprintf("%s/order/%d", url, userId)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	orders := server.GetOrdersResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(&orders); err != nil {
+		return nil, err
+	}
+	return &orders, nil
 }
 
 func (c *Client) PlaceMarketOrder(p *PlaceOrderParams) (*server.PlaceOrderResponse, error) {
